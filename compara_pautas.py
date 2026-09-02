@@ -69,13 +69,7 @@ def casar_alunos(nomes_sistema, nomes_fisica, limite_similaridade=80):
     return pares, sem_par_sistema, sem_par_fisica
 
 
-def comparar_pautas(dados_sistema, dados_fisica, limite_similaridade_nome=80):
-    """
-    Compara duas pautas em formato longo e retorna as divergências encontradas.
-
-    dados_sistema / dados_fisica: listas de dicts com chaves
-        'aluno', 'disciplina', 'campo', 'nota'
-    """
+def comparar_pautas(dados_sistema, dados_fisica, limite_similaridade_nome=80, ignorar_disciplinas=('OBS',)):
     nomes_sistema = sorted({d['aluno'] for d in dados_sistema})
     nomes_fisica = sorted({d['aluno'] for d in dados_fisica})
 
@@ -87,37 +81,55 @@ def comparar_pautas(dados_sistema, dados_fisica, limite_similaridade_nome=80):
     alunos_ok = []
 
     for nome_sis, nome_fis, pontuacao in pares:
-        # Monta um "dicionário de notas" por (disciplina, campo) pra cada aluno
+        registros_sis = [d for d in dados_sistema if d['aluno'] == nome_sis]
+        registros_fis = [d for d in dados_fisica if d['aluno'] == nome_fis]
+
+        numero_sis = registros_sis[0]['numero'] if registros_sis else None
+        numero_fis = registros_fis[0]['numero'] if registros_fis else None
+
         notas_sis = {
             (normalizar_disciplina(d['disciplina']), d['campo']): d['nota']
-            for d in dados_sistema if d['aluno'] == nome_sis
+            for d in registros_sis if d['disciplina'] not in ignorar_disciplinas
         }
         notas_fis = {
             (normalizar_disciplina(d['disciplina']), d['campo']): d['nota']
-            for d in dados_fisica if d['aluno'] == nome_fis
+            for d in registros_fis if d['disciplina'] not in ignorar_disciplinas
         }
 
         todas_chaves = set(notas_sis.keys()) | set(notas_fis.keys())
-        aluno_teve_divergencia = False
+        aluno_teve_divergencia_real = False
 
         for chave in sorted(todas_chaves):
             disciplina, campo = chave
-            nota_sis = notas_sis.get(chave, '(ausente)')
-            nota_fis = notas_fis.get(chave, '(ausente)')
+            nota_sis = str(notas_sis.get(chave, '')).strip()
+            nota_fis = str(notas_fis.get(chave, '')).strip()
 
-            if str(nota_sis).strip() != str(nota_fis).strip():
-                divergencias.append({
-                    'aluno_sistema': nome_sis,
-                    'aluno_fisica': nome_fis,
-                    'similaridade_nome': pontuacao,
-                    'disciplina': disciplina,
-                    'campo': campo,
-                    'nota_sistema': nota_sis,
-                    'nota_fisica': nota_fis,
-                })
-                aluno_teve_divergencia = True
+            if nota_sis == nota_fis:
+                continue  # bateu certinho, nem entra na lista
 
-        if not aluno_teve_divergencia:
+            # Classifica O TIPO da diferença, em vez de tratar tudo igual
+            if not nota_fis:
+                tipo = 'leitura_fisica_falhou'   # OCR não conseguiu ler essa célula
+            elif not nota_sis:
+                tipo = 'leitura_sistema_falhou'  # raro, mas pode acontecer
+            else:
+                tipo = 'divergencia_real'        # os dois têm valor, e são diferentes
+                aluno_teve_divergencia_real = True
+
+            divergencias.append({
+                'tipo': tipo,
+                'numero_sistema': numero_sis,
+                'numero_fisica': numero_fis,
+                'aluno_sistema': nome_sis,
+                'aluno_fisica': nome_fis,
+                'similaridade_nome': pontuacao,
+                'disciplina': disciplina,
+                'campo': campo,
+                'nota_sistema': nota_sis or '(vazio)',
+                'nota_fisica': nota_fis or '(vazio)',
+            })
+
+        if not aluno_teve_divergencia_real:
             alunos_ok.append(nome_sis)
 
     return {
